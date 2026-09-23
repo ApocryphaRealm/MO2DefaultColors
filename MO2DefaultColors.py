@@ -368,3 +368,35 @@ class MO2DefaultColors(mobase.IPlugin):
 
 def createPlugin():
     return MO2DefaultColors()
+
+
+# --- fault handling (standing rule, 2026-09-23: every MO2 plugin of ours logs and arms faulthandler) ---------------
+def _arm_faulthandler():
+    """Arm Python's faulthandler once per process, into plugins\\data\\faults.log. When MO2 dies inside C++ with a
+    Python slot on the stack, the minidump names only modules; faulthandler writes the Python frames of every
+    thread first, so the log names the plugin and the line. Whichever of our plugins loads first arms it."""
+    try:
+        import faulthandler
+        import os
+        import time
+        if faulthandler.is_enabled():
+            return
+        here = os.path.abspath(__file__)
+        while os.path.basename(here).lower() != "plugins":
+            parent = os.path.dirname(here)
+            if parent == here:
+                return
+            here = parent
+        path = os.path.join(here, "data", "faults.log")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fh = open(path, "a", encoding="utf-8")
+        who = os.path.basename(os.path.dirname(__file__)) if os.path.basename(__file__) == "__init__.py" else os.path.basename(__file__)
+        fh.write(time.strftime("%Y-%m-%d %H:%M:%S") + " faulthandler armed by " + who + chr(10))
+        fh.flush()
+        globals()["_FAULT_LOG_HANDLE"] = fh          # kept open for the life of the process
+        faulthandler.enable(file=fh, all_threads=True)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+_arm_faulthandler()
