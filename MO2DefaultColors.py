@@ -37,17 +37,10 @@ except ImportError:
 
 # --- the colour line, as MO2 writes it -------------------------------------------------------------------------------
 def _escape(data: bytes) -> str:
-    """QSettings' INI escaping of a byte string, as MO2's meta.ini shows it: \\0 for a zero byte, \\xHH for other bytes
-    that are not plain printable ASCII, the printable ones as themselves."""
-    out = []
-    for b in data:
-        if b == 0:
-            out.append("\\0")
-        elif 0x20 <= b < 0x7F and chr(b) not in '\\;"':
-            out.append(chr(b))
-        else:
-            out.append("\\x%x" % b)
-    return "".join(out)
+    """The escaping MO2's meta.ini shows for a QColor variant: a zero byte as backslash-0, every other byte as
+    backslash-x and its hex digits (MO2 writes the 0x43 type byte that way too, never as the printable 'C'), so the
+    line produced here matches MO2's own byte for byte."""
+    return "".join("\\0" if b == 0 else "\\x%x" % b for b in data)
 
 
 def _unescape(text: str) -> bytes:
