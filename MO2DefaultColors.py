@@ -182,7 +182,7 @@ class MO2DefaultColors(mobase.IPlugin):
         except Exception as exc:  # noqa: BLE001
             self._log(f"onUserInterfaceInitialized: {exc!r}")
         try:
-            organizer.modList().onRefreshed(self._on_refreshed)
+            organizer.pluginList().onRefreshed(self._on_refreshed)      # IModList has no onRefreshed on 2.5.2
         except Exception as exc:  # noqa: BLE001
             self._log(f"onRefreshed not available: {exc!r}")
         return True
@@ -241,7 +241,20 @@ class MO2DefaultColors(mobase.IPlugin):
         view.installEventFilter(self._hook)
         self._log("context-menu entries installed")
 
+    def _real_names(self, shown):
+        """The mod list shows a separator without its _separator suffix (the owner, 2026-09-23: "there's nothing for
+        separators as a separate option" - every right-click had been read as a mod). Map what the view shows
+        back to the real folder names."""
+        try:
+            real = {}
+            for n in self._organizer.modList().allMods():
+                real[n[:-len("_separator")] if is_separator(n) else n] = n
+            return [real.get(n, n) for n in shown]
+        except Exception:  # noqa: BLE001
+            return list(shown)
+
     def _build_menu(self, names, menu):
+        names = self._real_names(names)
         if not names:
             return
         seps = is_separator(names[0])
@@ -275,19 +288,23 @@ class MO2DefaultColors(mobase.IPlugin):
             return act
 
         default = self._default(seps)
-        shown = default.name() if default is not None else "none"
         clicked = names[0]
         clicked_colour = color_from_line(read_color_line(os.path.join(self._organizer.modsPath(), clicked, "meta.ini")))
         sep0 = QAction(menu)
         sep0.setSeparator(True)
         menu.insertAction(following, sep0) if following is not None else menu.addAction(sep0)
+        # the clicked entry first: its colour as a default, the default onto the selection
         add(f"Use This Color as the Default for {kind}", lambda _c=False: self._use_as_default(seps, clicked_colour),
             enabled=clicked_colour is not None)
-        add(f"Choose Default Color for {kind}... (now {shown})", lambda _c=False: self._choose_default(seps))
-        add("Apply Default Color", lambda _c=False, ns=tuple(names): self._apply_to(seps, ns), enabled=default is not None)
-        add(f"Apply Default Color to All {kind}", lambda _c=False: self._apply_to(seps, None), enabled=default is not None)
-        add(f"Color New {kind} Automatically", lambda checked=False: self._set("auto_separators" if seps else "auto_mods", bool(checked)),
-            checkable=True, checked=bool(self._get("auto_separators" if seps else "auto_mods", seps)))
+        add(f"Apply Default Color to Selected {kind}", lambda _c=False, ns=tuple(names): self._apply_to(seps, ns), enabled=default is not None)
+        # then one explicit block per kind - separators and mods are separate options whatever was clicked
+        for k_seps, k_name, k_key in ((True, "Separators", "auto_separators"), (False, "Mods", "auto_mods")):
+            k_default = self._default(k_seps)
+            k_shown = k_default.name() if k_default is not None else "none"
+            add(f"Choose Default {k_name[:-1]} Color... (now {k_shown})", lambda _c=False, ks=k_seps: self._choose_default(ks))
+            add(f"Apply Default Color to All {k_name}", lambda _c=False, ks=k_seps: self._apply_to(ks, None), enabled=k_default is not None)
+            add(f"Color New {k_name} Automatically", lambda checked=False, kk=k_key: self._set(kk, bool(checked)),
+                checkable=True, checked=bool(self._get(k_key, k_seps)))
         sep1 = QAction(menu)
         sep1.setSeparator(True)
         menu.insertAction(following, sep1) if following is not None else menu.addAction(sep1)
@@ -352,7 +369,7 @@ class MO2DefaultColors(mobase.IPlugin):
                         n += 1
             if n:
                 self._log(f"gave the default colour to {n} new entr{'y' if n == 1 else 'ies'}")
-                QTimer.singleShot(0, lambda: self._organizer.refresh(True))
+                QTimer.singleShot(1500, lambda: self._organizer.refresh(False))   # re-read the meta.ini just written; never save over it
         finally:
             self._busy = False
 
